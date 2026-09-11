@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Assistant PPV — Production</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="styles.css"/>
+  <style>
+    /* API Loading states */
+    .api-loading { opacity: 0.6; pointer-events: none; }
+    .api-error { background: #ffe0e0; border-left: 4px solid #e31d23; padding: 12px; margin: 8px 0; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <template id="__bundler_thumbnail">
+    <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+      <rect width="100" height="100" rx="20" fill="#003D82"/>
+      <text x="50" y="62" font-family="Public Sans, Arial, sans-serif" font-size="30" font-weight="700" fill="#fff" text-anchor="middle">PPV</text>
+    </svg>
+  </template>
+
+  <!-- React et Babel from CDN -->
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" 
+          integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" 
+          crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" 
+          integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" 
+          crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" 
+          integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" 
+          crossorigin="anonymous"></script>
+
+  <!-- Configuration API (définie avant le chargement des modules) -->
+  <script type="text/babel">
+    window.API_CONFIG = {
+      baseUrl: process.env.REACT_APP_API_URL || '/api',
+      timeout: 30000
+    };
+    
+    // Fetch helper avec gestion d'erreur
+    window.apiCall = async (endpoint, options = {}) => {
+      try {
+        const response = await fetch(`${window.API_CONFIG.baseUrl}${endpoint}`, {
+          headers: { 'Content-Type': 'application/json' },
+          ...options
+        });
+        
+        if (!response.ok) {
+          throw new Error(`API Error ${response.status}`);
+        }
+        
+        return await response.json();
+      } catch (error) {
+        console.error(`[API] ${endpoint}:`, error);
+        throw error;
+      }
+    };
+  </script>
+
+  <!-- Charger les composants (ordre important !) -->
+  <script type="text/babel" src="tweaks-panel.jsx"></script>
+  <script type="text/babel" src="components.jsx"></script>
+  <script type="text/babel" src="flows.jsx"></script>
+  <script type="text/babel" src="dashboard.jsx"></script>
+  
+  <!-- Intégration LLM -->
+  <script type="text/babel" src="app-adapter.jsx"></script>
+  
+  <!-- App principale -->
+  <script type="text/babel" src="app.jsx"></script>
+</body>
+</html>
