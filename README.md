@@ -1,6 +1,36 @@
 # 🤖 Assistant PPV — Production Chatbot
 
-Chatbot IA support N1 pour les Postes Virtuels (PPV) SNCF, avec intégration Azure OpenAI/Claude et déploiement Apache.
+Chatbot IA support N1 pour les Postes Virtuels (PPV) SNCF — prototype de faisabilité fondé sur la recherche documentaire (RAG).
+
+> **📌 À lire en premier — état réel du prototype (octobre 2026)**
+>
+> Ce dépôt contient le **prototype de faisabilité** de l'assistant PPV. Plusieurs documents (ce README plus bas, SETUP, DEPLOYMENT, INTEGRATION, RAG-SUMMARY) ont été rédigés au fil des itérations et décrivent aussi des **options envisagées** (Azure OpenAI, Claude, Apache, gpt-4) qui ne sont **pas** celles du prototype réellement exécuté. La version qui fait foi est celle-ci :
+>
+> | Élément | Prototype réellement exécuté |
+> |---|---|
+> | Interface | React, servie par le serveur (`public/`) |
+> | Serveur | `server-fixed.js` (Node.js / Express, port 3001) |
+> | Base de recherche | Chroma en conteneur Docker (port 8000, collection `ppv`, mesure cosinus) |
+> | Indexation | `vectorize.py` (Python), sur 4 documents de démonstration |
+> | Modèles | OpenAI en accès direct : `text-embedding-3-small` et `gpt-3.5-turbo` |
+>
+> **Lancer le prototype**
+>
+> ```bash
+> docker run -d -p 8000:8000 chromadb/chroma   # 1. base de recherche
+> pip install chromadb openai python-dotenv     # 2. indexation
+> python vectorize.py
+> npm install                                   # 3. serveur + interface
+> node server-fixed.js                          # puis ouvrir http://localhost:3001
+> ```
+>
+> Seule la variable `OPENAI_API_KEY` est nécessaire dans `.env`.
+>
+> ⚠️ `npm start` lance encore `server-rag.js` et non `server-fixed.js` : c'est le constat n° 8 de la revue de code, à corriger avant la bêta. Les autres fichiers `server-*.js` et `vectorize-*.js` sont des vestiges des itérations précédentes.
+>
+> **Documentation de pilotage** (choix, architecture cible, planning, revue de code, diagrammes) : [github.com/margotmc-web/Chatbot_PPV_BC07](https://github.com/margotmc-web/Chatbot_PPV_BC07)
+
+---
 
 ---
 
