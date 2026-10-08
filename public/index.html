@@ -38,7 +38,7 @@
   <!-- Configuration API (définie avant le chargement des modules) -->
   <script type="text/babel">
     window.API_CONFIG = {
-      baseUrl: process.env.REACT_APP_API_URL || '/api',
+      baseUrl: '/api',
       timeout: 30000
     };
     
@@ -68,8 +68,8 @@
   <script type="text/babel" src="flows.jsx"></script>
   <script type="text/babel" src="dashboard.jsx"></script>
   
-  <!-- Intégration LLM -->
-  <script type="text/babel" src="app-adapter.jsx"></script>
+  <!-- Intégration LLM : l'appel au serveur RAG est fait directement dans app.jsx (onSend).
+       app-adapter.jsx et rag-adapter.jsx sont des brouillons d'intégration conservés pour l'historique. -->
   
   <!-- App principale -->
   <script type="text/babel" src="app.jsx"></script>

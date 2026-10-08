@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// ⚠️ Fichier conservé pour l'historique des itérations, non utilisé. Le serveur en service est server-fixed.js (voir RAG-IMPLEMENTATION.md).
 
 /**
  * Vectorization Script — Préparer les documents pour le RAG

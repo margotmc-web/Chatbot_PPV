@@ -49,6 +49,27 @@ const ARTICLE_LABELS = {
 /* ============================================================
    Message renderer
    ============================================================ */
+/* Sources utilisées pour la réponse (renvoyées par le serveur dans ragDocuments).
+   Chroma renvoie une distance cosinus : plus elle est petite, plus le passage est proche.
+   Le taux de correspondance affiché vaut donc 1 − distance. */
+function RagSources({ docs }) {
+  if (!docs || !docs.length) return null;
+  return (
+    <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--line, #e5e5e5)', fontSize: 13 }}>
+      <div style={{ fontWeight: 600, marginBottom: 4 }}>📚 Sources</div>
+      {docs.map((d, i) => (
+        <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+          <span style={{ opacity: .7 }}>[Ref {i + 1}]</span>
+          <span>{d.metadata?.doc_title || 'Document'}</span>
+          <span style={{ marginLeft: 'auto', fontWeight: 600 }}>
+            {Math.max(0, Math.round((1 - d.distance) * 100))} %
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Message({ msg, onAction }) {
   if (msg.role === 'user') {
     return (
@@ -802,46 +823,53 @@ Merci d'avance.`,
     }
   };
 
-  /* Composer submit */
-  const onSend = () => {
+  /* Composer submit — question libre envoyée au serveur RAG (server-fixed.js)
+     1. le serveur cherche les 3 passages les plus proches dans Chroma
+     2. il fait rédiger la réponse par le modèle à partir de ces passages
+     3. il renvoie la réponse et les passages utilisés (ragDocuments) */
+  const onSend = async () => {
     const text = composerText.trim();
     if (!text) return;
     setComposerText('');
+
+    // Historique transmis au serveur : uniquement les échanges en texte, 6 derniers messages
+    const history = messages
+      .filter(m => !m.typing && typeof (m.text ?? m.content) === 'string')
+      .map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text ?? m.content }))
+      .slice(-6);
+
     sendUser(text);
-    // crude intent detection for demo
-    const lower = text.toLowerCase();
-    setTimeout(() => {
-      if (/(lent|conne|diag|probl|panne|marche pas)/.test(lower)) {
-        botRespond(
-          <p>Je vais vous aider. Voulez-vous lancer un <strong>diagnostic guidé</strong> ou préparer directement un <strong>ticket pour ServiceNow</strong> ?</p>,
-          { choices: [
-            { id: 'go-diag', label: 'Lancer le diagnostic', primary: true, kind: 'jump-diagnostic' },
-            { id: 'go-tick', label: 'Préparer un ticket',  kind: 'jump-ticket' },
-          ] }
-        );
-      } else if (/(co[uû]t|prix|tarif|combien|factur)/.test(lower)) {
-        botRespond(<p>Voici les informations tarifaires. Choisissez ce qui vous intéresse :</p>);
-        setTimeout(() => {
-          pushMessage({ role: 'bot', wide: true, card: <CostBreakdownCard/> });
-        }, 1200);
-      } else if (/(suivi|ticket|statut|avancement|incident)/.test(lower)) {
-        startTracking();
-      } else if (/(diff[ée]rence|clone|standard|acc[èe]s|comprends|comment)/.test(lower)) {
-        botRespond(<p>Voici une réponse rapide. Si la question n'est pas couverte, parcourez les FAQ ou demandez-moi autrement.</p>);
-        setTimeout(() => {
-          pushMessage({ role: 'bot', wide: true, card: <FaqList/> });
-        }, 1100);
-      } else {
-        botRespond(
-          <p>Je peux vous aider à <strong>diagnostiquer votre VM</strong>, préparer un <strong>brouillon de ticket pour ServiceNow</strong>, ou répondre à vos questions sur le PPV. Que souhaitez-vous faire ?</p>,
-          { choices: [
-            { id: 'diag', label: 'Diagnostic', primary: true, kind: 'jump-diagnostic' },
-            { id: 'tick', label: 'Préparer un ticket', kind: 'jump-ticket' },
-            { id: 'faq',  label: 'Voir la FAQ',  kind: 'jump-faq' },
-          ] }
-        );
-      }
-    }, 300);
+    pushMessage({ role: 'bot', typing: true });
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: [...history, { role: 'user', content: text }], useRAG: true }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      replaceLast(() => ({
+        id: newId(), role: 'bot', time: now(), text: data.response,
+        content: (
+          <>
+            <p style={{ whiteSpace: 'pre-wrap' }}>{data.response}</p>
+            <RagSources docs={data.ragDocuments}/>
+          </>
+        ),
+      }));
+    } catch (err) {
+      // Service indisponible : on revient aux parcours guidés de la maquette
+      replaceLast(() => ({
+        id: newId(), role: 'bot', time: now(),
+        content: <p>Le service de réponse automatique est momentanément indisponible. Je peux tout de même vous guider :</p>,
+        choices: [
+          { id: 'diag', label: 'Diagnostic', primary: true, kind: 'jump-diagnostic' },
+          { id: 'tick', label: 'Préparer un ticket', kind: 'jump-ticket' },
+          { id: 'faq',  label: 'Voir la FAQ',  kind: 'jump-faq' },
+        ],
+      }));
+    }
   };
 
   const onSuggest = (id) => {

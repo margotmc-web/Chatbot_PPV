@@ -1,390 +1,89 @@
-# 🤖 Assistant PPV — Production Chatbot
+# 🤖 Assistant PPV — prototype de faisabilité
 
-Chatbot IA support N1 pour les Postes Virtuels (PPV) SNCF — prototype de faisabilité fondé sur la recherche documentaire (RAG).
+Assistant de support de niveau 1 pour l'offre Postes Virtuels (PPV) de la SNCF. Ce dépôt contient le **prototype de faisabilité** : il démontre qu'une IA peut répondre aux questions des utilisateurs **à partir de la documentation du service**, en citant ses sources, pour un coût par question très faible.
 
-> **📌 À lire en premier — état réel du prototype (octobre 2026)**
->
-> Ce dépôt contient le **prototype de faisabilité** de l'assistant PPV. Plusieurs documents (ce README plus bas, SETUP, DEPLOYMENT, INTEGRATION, RAG-SUMMARY) ont été rédigés au fil des itérations et décrivent aussi des **options envisagées** (Azure OpenAI, Claude, Apache, gpt-4) qui ne sont **pas** celles du prototype réellement exécuté. La version qui fait foi est celle-ci :
->
-> | Élément | Prototype réellement exécuté |
-> |---|---|
-> | Interface | React, servie par le serveur (`public/`) |
-> | Serveur | `server-fixed.js` (Node.js / Express, port 3001) |
-> | Base de recherche | Chroma en conteneur Docker (port 8000, collection `ppv`, mesure cosinus) |
-> | Indexation | `vectorize.py` (Python), sur 4 documents de démonstration |
-> | Modèles | OpenAI en accès direct : `text-embedding-3-small` et `gpt-3.5-turbo` |
->
-> **Lancer le prototype**
->
-> ```bash
-> docker run -d -p 8000:8000 chromadb/chroma   # 1. base de recherche
-> pip install chromadb openai python-dotenv     # 2. indexation
-> python vectorize.py
-> npm install                                   # 3. serveur + interface
-> node server-fixed.js                          # puis ouvrir http://localhost:3001
-> ```
->
-> Seule la variable `OPENAI_API_KEY` est nécessaire dans `.env`.
->
-> ⚠️ `npm start` lance encore `server-rag.js` et non `server-fixed.js` : c'est le constat n° 8 de la revue de code, à corriger avant la bêta. Les autres fichiers `server-*.js` et `vectorize-*.js` sont des vestiges des itérations précédentes.
->
-> **Documentation de pilotage** (choix, architecture cible, planning, revue de code, diagrammes) : [github.com/margotmc-web/Chatbot_PPV_BC07](https://github.com/margotmc-web/Chatbot_PPV_BC07)
+> Ce dépôt s'adresse aux **développeurs**. La documentation de pilotage (choix, benchmark, architecture cible, planning, revue de code, diagrammes) est dans un dépôt séparé : [github.com/margotmc-web/Chatbot_PPV_BC07](https://github.com/margotmc-web/Chatbot_PPV_BC07).
 
 ---
 
----
+## Ce que fait le prototype
 
-## 📋 Vue d'ensemble
+1. L'utilisateur pose sa question en langage courant dans la fenêtre de conversation.
+2. Le serveur traduit la question en nombres (vectorisation) et cherche les **3 passages les plus proches** dans la base de recherche Chroma.
+3. Il envoie ces seuls passages à l'IA, qui **rédige la réponse**.
+4. La réponse s'affiche avec ses **sources** et leur **taux de correspondance**.
+
+C'est le principe RAG (génération augmentée par la recherche), expliqué dans [RAG-GUIDE.md](RAG-GUIDE.md).
 
 ```
-┌─────────────────────────────────────────────────┐
-│  🌐 Navigateur (React 18 + Babel)              │
-│     (public/index.html + JSX)                   │
-└─────────────────┬───────────────────────────────┘
-                  │ HTTP/WebSocket
-┌─────────────────▼───────────────────────────────┐
-│  🔄 Apache 2.4 (Reverse Proxy)                 │
-│     Port 80/443                                 │
-└─────────────────┬───────────────────────────────┘
-                  │ ProxyPass /api → localhost:3001
-┌─────────────────▼───────────────────────────────┐
-│  🚀 Node.js/Express Backend (server.js)        │
-│     Port 3001                                   │
-│     • POST /api/chat → LLM                     │
-│     • POST /api/diagnostic → Intent Analysis   │
-│     • GET /api/health → Status check           │
-└─────────────────┬───────────────────────────────┘
-                  │ HTTPS
-┌─────────────────▼───────────────────────────────┐
-│  🧠 Azure OpenAI / Claude API                  │
-│     (GPT-4, Claude-opus, etc.)                 │
-└─────────────────────────────────────────────────┘
+ Navigateur ── question ──▶  Serveur Node.js / Express (server-fixed.js, port 3001)
+ (React, public/)                 │ 1. vectorisation de la question  ──▶ OpenAI (text-embedding-3-small)
+     ▲                            │ 2. recherche des 3 passages       ──▶ Chroma (Docker, port 8000)
+     │                            │ 3. rédaction de la réponse        ──▶ OpenAI (gpt-3.5-turbo)
+     └── réponse + sources ───────┘
 ```
 
----
+## Démarrage rapide
 
-## 🚀 Quick Start
-
-### Développement local
+Prérequis : Node.js 18 ou plus, Python 3.10 ou plus, Docker, une clé d'API OpenAI. Le détail est dans [SETUP.md](SETUP.md).
 
 ```bash
-# 1. Backend
-cd chatbot-production
-npm install
-npm start
-# http://localhost:3001/api/health
+# 1. Base de recherche
+docker run -d -p 8000:8000 chromadb/chroma
 
-# 2. Frontend (autre terminal)
-cd public
-python3 -m http.server 8000
-# http://localhost:8000
+# 2. Configuration : copier le modèle puis renseigner OPENAI_API_KEY
+cp .env.example .env        # Windows : copy .env.example .env
+
+# 3. Indexation des documents
+pip install chromadb openai python-dotenv
+python vectorize.py
+
+# 4. Serveur et interface
+npm install --legacy-peer-deps
+node server-fixed.js
 ```
 
-### Production (Apache)
+Ouvrir ensuite **http://localhost:3001** et poser une question, par exemple « Ma VM est lente, que faire ? ».
 
-```bash
-# Voir DEPLOYMENT.md pour les détails complets
+> ⚠️ Ne pas utiliser `npm start` : la commande lance encore `server-rag.js`, une version abandonnée (constat n° 8 de la revue de code, à corriger avant la bêta).
 
-# 1. Copier les fichiers
-sudo cp -r chatbot-production /var/www/
+## Contenu du dépôt
 
-# 2. Configurer les envs
-sudo nano /var/www/chatbot-production/.env
+**Fichiers en service**
 
-# 3. Installer Apache et Node.js
-sudo apt-get install nodejs apache2
-sudo a2enmod proxy proxy_http rewrite headers
+| Fichier | Rôle |
+|---|---|
+| `server-fixed.js` | Serveur : routes `/api/chat` et `/api/health`, recherche dans Chroma, appel à l'IA, envoi de l'interface |
+| `vectorize.py` | Indexation : découpe les documents, les vectorise et les range dans Chroma (collection `ppv`) |
+| `public/` | Interface React (chargée dans le navigateur, sans étape de compilation) |
+| `public/app.jsx` | Application principale ; `onSend` envoie la question au serveur, `RagSources` affiche les sources |
+| `count-chroma.py` | Vérifie le nombre de passages indexés dans Chroma |
+| `test-api.js` | Teste les routes du serveur |
+| `.env.example` | Modèle de configuration, sans clé réelle |
 
-# 4. Activer le site
-sudo cp apache-config.conf /etc/apache2/sites-available/chatbot-ppv.conf
-sudo a2ensite chatbot-ppv
+**Fichiers conservés pour l'historique des itérations** (non utilisés, voir [RAG-IMPLEMENTATION.md](RAG-IMPLEMENTATION.md#historique-des-fichiers))
 
-# 5. Lancer le backend
-cd /var/www/chatbot-production
-npm install --production
-sudo pm2 start server.js --name chatbot-ppv
+`server.js`, `server-simple.js`, `server-rag.js`, `rag-service.js`, `vectorize-docs.js`, `vectorize-simple-delay.js`, `vectorize-fixed.js`, `vectorize-free.js`, `apache-config.conf`, `public/app-adapter.jsx`, `public/rag-adapter.jsx`.
 
-# 6. Tester
-curl http://localhost/api/health
-```
+## Documentation
 
----
+| Document | Contenu |
+|---|---|
+| [SETUP.md](SETUP.md) | Installation pas à pas et résolution des problèmes courants |
+| [RAG-GUIDE.md](RAG-GUIDE.md) | Le principe de la recherche documentaire, expliqué simplement |
+| [RAG-IMPLEMENTATION.md](RAG-IMPLEMENTATION.md) | Le fonctionnement du code, fichier par fichier, et ses limites connues |
+| [INTEGRATION.md](INTEGRATION.md) | Les intégrations prévues : SharePoint, compte SNCF, Azure, ticket pré-rédigé |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | Le passage du prototype à la bêta, puis à la production |
 
-## 📁 Structure
+## État du prototype
 
-```
-chatbot-production/
-├── server.js                  # Backend Express avec API LLM
-├── package.json              # Dépendances Node.js
-├── .env.example              # Template variables d'environnement
-├── .env                       # Variables d'env (à créer, git-ignore)
-│
-├── public/
-│   ├── index.html            # Page hôte
-│   ├── styles.css            # Tous les styles SNCF
-│   ├── app.jsx               # Application React principale
-│   ├── components.jsx        # UI primitives (Avatar, Button, etc.)
-│   ├── flows.jsx             # Parcours conversationnels
-│   ├── dashboard.jsx         # Tableau de bord utilisateur
-│   └── tweaks-panel.jsx      # Panneau settings prototype
-│
-├── app-adapter.jsx           # Intégration LLM (fetch API)
-├── apache-config.conf        # Config Apache reverse proxy
-│
-├── DEPLOYMENT.md             # Guide complet de déploiement
-├── INTEGRATION.md            # Comment intégrer LLM dans app.jsx
-├── README.md                 # Ce fichier
-└── package-lock.json         # Lock versions npm
-```
+| Fonctionnalité | État |
+|---|---|
+| Question en langage naturel et réponse rédigée par l'IA | 🟢 Fonctionne |
+| Recherche préalable dans la documentation (3 passages) | 🟢 Fonctionne |
+| Affichage des sources et du taux de correspondance | 🟢 Fonctionne |
+| Réponse « je ne sais pas » quand aucun passage ne correspond | 🔴 À construire (constat n° 3) |
+| Pré-rédaction du ticket à reporter dans ServiceNow | 🔴 À construire |
+| Documentation réelle du SharePoint, connexion avec le compte SNCF | 🔴 À construire |
 
----
-
-## ⚙️ Configuration
-
-### Variables d'environnement
-
-Copie `.env.example` → `.env` et remplis:
-
-```bash
-# Backend
-PORT=3001
-NODE_ENV=production
-
-# Choix 1: Azure OpenAI (SNCF standard)
-AZURE_OPENAI_KEY=your-key
-AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
-AZURE_OPENAI_DEPLOYMENT=gpt-4
-
-# OU Choix 2: OpenAI Direct
-OPENAI_API_KEY=sk-your-key
-OPENAI_MODEL=gpt-4
-
-# CORS (adapter au domaine en production)
-CORS_ORIGIN=https://ppv-assistant.sncf.fr
-```
-
----
-
-## 🔌 API Endpoints
-
-### POST `/api/chat`
-
-Envoie un message, reçoit une réponse LLM.
-
-**Request:**
-```json
-{
-  "messages": [
-    {"role": "user", "content": "Ma VM est lente"},
-    {"role": "assistant", "content": "Je vais diagnostiquer..."}
-  ]
-}
-```
-
-**Response:**
-```json
-{
-  "response": "Voici ce que j'analyse..."
-}
-```
-
-### POST `/api/diagnostic`
-
-Analyse structurée avec intent detection.
-
-**Request:**
-```json
-{
-  "userInput": "Mon PPV ne répond plus depuis ce matin",
-  "context": {"vmName": "PPV-AVD-CR-04", "vmStatus": "Dégradée"}
-}
-```
-
-**Response:**
-```json
-{
-  "analysis": "VM dégradée avec symptôme critique",
-  "actions": ["Vérifier la connexion VPN", "Redémarrer la VM"],
-  "escalate": true
-}
-```
-
-### GET `/api/health`
-
-Vérifier la santé du serveur et du LLM.
-
-**Response:**
-```json
-{
-  "status": "ok",
-  "llm": "Azure OpenAI",
-  "timestamp": "2026-09-07T14:32:00Z"
-}
-```
-
----
-
-## 📊 Intégration LLM
-
-Trois options supportées:
-
-### 1️⃣ Azure OpenAI (Recommandé SNCF)
-
-```javascript
-// server.js auto-détecte la présence de AZURE_OPENAI_KEY
-const USE_AZURE = process.env.AZURE_OPENAI_KEY && process.env.AZURE_OPENAI_ENDPOINT;
-
-if (USE_AZURE) {
-  const { OpenAIClient, AzureKeyCredential } = require('@azure/openai');
-  azureClient = new OpenAIClient(
-    process.env.AZURE_OPENAI_ENDPOINT,
-    new AzureKeyCredential(process.env.AZURE_OPENAI_KEY)
-  );
-}
-```
-
-### 2️⃣ OpenAI Direct
-
-```javascript
-import OpenAI from 'openai';
-const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-```
-
-### 3️⃣ Claude (via OpenAI-compatible)
-
-```javascript
-// Même interface OpenAI, change juste la clé et le model
-OPENAI_API_KEY=sk-ant-...
-OPENAI_MODEL=claude-opus
-```
-
----
-
-## 🧪 Tests
-
-### Santé du backend
-
-```bash
-curl http://localhost:3001/api/health
-```
-
-### Chat simple
-
-```bash
-curl -X POST http://localhost:3001/api/chat \
-  -H "Content-Type: application/json" \
-  -d '{"messages":[{"role":"user","content":"Bonjour"}]}'
-```
-
-### Diagnostic
-
-```bash
-curl -X POST http://localhost:3001/api/diagnostic \
-  -H "Content-Type: application/json" \
-  -d '{"userInput":"VM lente","context":{"vmName":"PPV-1"}}'
-```
-
----
-
-## 🔐 Sécurité
-
-- ✅ CORS configuré (adapter le domaine)
-- ✅ Content-Security-Policy headers
-- ✅ .env jamais en git (`.gitignore`)
-- ✅ HTTPS en production (Let's Encrypt)
-- ✅ Clés API en variables d'env, pas en hardcode
-- ⚠️ Adapter les headers de sécurité Apache (`apache-config.conf` ligne 80+)
-
----
-
-## 📈 Déploiement
-
-Voir **DEPLOYMENT.md** pour:
-- Installation Node.js
-- Configuration Apache
-- PM2 ou systemd
-- HTTPS/SSL
-- Monitoring
-
-**Résumé 30 sec:**
-```bash
-npm install --production
-# Créer .env avec clés API
-sudo cp apache-config.conf /etc/apache2/sites-available/chatbot-ppv.conf
-sudo a2ensite chatbot-ppv
-sudo pm2 start server.js
-sudo systemctl restart apache2
-```
-
----
-
-## 🐛 Dépannage
-
-| Problème | Cause | Fix |
-|----------|-------|-----|
-| 502 Bad Gateway | Backend pas lancé | `sudo pm2 status` |
-| 404 /api/* | Proxy mal configuré | Vérifier `ProxyPass` dans Apache |
-| CORS Error | Domaine pas autorisé | Adapter `Access-Control-Allow-Origin` |
-| Timeout LLM | Requête trop longue | Augmenter `maxTokens` timeout |
-| API Key invalid | Clé expirée/invalide | Vérifier `.env` |
-
-Logs:
-```bash
-sudo journalctl -u chatbot-ppv -f  # systemd
-sudo pm2 logs chatbot-ppv          # PM2
-sudo tail -f /var/log/apache2/ppv-chatbot-*.log  # Apache
-```
-
----
-
-## 📝 Intégration dans le code React
-
-Voir **INTEGRATION.md** pour modifier `app.jsx`:
-
-1. Remplacer `onSend()` par version async/await
-2. Ajouter `callLLMApi()` helper
-3. Adapter `startDiagnostic()` (optionnel)
-4. Tester en local d'abord
-
----
-
-## 🔄 Mise à jour
-
-```bash
-cd /var/www/chatbot-ppv
-git pull origin main
-npm install --production
-sudo pm2 restart chatbot-ppv
-```
-
----
-
-## 📞 Contacts
-
-- **Slack**: #ppv-assistant-dev
-- **Email**: margot.xxx@sncf.fr
-- **Issues**: [Repo GitHub/GitLab]
-
----
-
-## 📄 License
-
-MIT (adapter selon la politique SNCF)
-
----
-
-## ✅ Checklist déploiement
-
-- [ ] Backend lancé et répondant (port 3001)
-- [ ] Variables d'env remplies
-- [ ] Apache configuré et redémarré
-- [ ] CORS paramétré pour ton domaine
-- [ ] Tests `/api/health` OK
-- [ ] Tests `/api/chat` OK
-- [ ] Frontend accessible via Apache
-- [ ] HTTPS activé
-- [ ] Logs configurés
-- [ ] Backups en place
-- [ ] Monitoring en place
-
-**Tu es prêt.e?** 🚀 Lance le déploiement!
+Le prototype fonctionne sur **4 documents de démonstration**, pour **un utilisateur**, sur un poste local. La revue de code (12 constats) liste les corrections à faire avant toute ouverture à des utilisateurs : voir la [section 7 de la documentation de pilotage](https://github.com/margotmc-web/Chatbot_PPV_BC07).

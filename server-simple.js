@@ -1,3 +1,4 @@
+// ⚠️ Fichier conservé pour l'historique des itérations, non utilisé. Le serveur en service est server-fixed.js (voir RAG-IMPLEMENTATION.md).
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();

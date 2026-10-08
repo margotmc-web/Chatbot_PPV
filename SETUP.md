@@ -1,319 +1,85 @@
-# ⚡ Guide de Démarrage Rapide
+# Installation du prototype
 
-## TL;DR
+Ce guide permet de faire fonctionner le prototype sur un poste de travail. Comptez environ 15 minutes. Les commandes fonctionnent sous Windows (PowerShell), macOS et Linux, sauf mention contraire.
 
-Tu as un prototype React en V2. Je l'ai transformé en **app production-ready** avec:
-- ✅ **Backend Node.js/Express** avec API LLM
-- ✅ **Fichiers statiques React** adaptés
-- ✅ **Configuration Apache** en reverse proxy
-- ✅ **Support Azure OpenAI / Claude**
-- ✅ **Guides de déploiement** complets
+## 1. Prérequis
 
----
+| Outil | Version | Pour quoi faire |
+|---|---|---|
+| Node.js | 18 ou plus | Faire tourner le serveur |
+| Python | 3.10 ou plus | Lancer le script d'indexation |
+| Docker | Version récente | Faire tourner la base de recherche Chroma |
+| Clé d'API OpenAI | — | Vectoriser les textes et rédiger les réponses |
 
-## 📦 Ce que tu as reçu
-
-```
-chatbot-production/
-├── server.js              ← Backend Express (API LLM)
-├── package.json           ← Dépendances Node
-├── .env.example           ← Template config
-├── public/                ← Frontend React
-│   ├── index.html        ← Page hôte
-│   ├── app.jsx           ← App principale
-│   ├── app-adapter.jsx   ← Intégration LLM (voir note ci-dessous)
-│   ├── *.jsx             ← Composants React
-│   └── styles.css        ← Tous les styles
-├── apache-config.conf     ← Config Apache reverse proxy
-├── test-api.js           ← Script de test
-├── README.md             ← Doc complète
-├── DEPLOYMENT.md         ← Guide déploiement serveur
-├── INTEGRATION.md        ← Comment modifier app.jsx
-└── SETUP.md              ← Ce fichier
-```
-
----
-
-## 🚀 Démarrer en 5 minutes (Développement Local)
-
-### 1. Terminal 1 — Backend
+## 2. Récupérer le code
 
 ```bash
-cd chatbot-production
-npm install
-npm start
-
-# Doit afficher:
-# 🚀 Assistant PPV server running on port 3001
-# 💬 POST http://localhost:3001/api/chat
+git clone https://github.com/margotmc-web/Chatbot_PPV.git
+cd Chatbot_PPV
 ```
 
-### 2. Terminal 2 — Frontend
+## 3. Configurer
 
 ```bash
-cd chatbot-production/public
-python3 -m http.server 8000
-
-# Ouvre http://localhost:8000 dans le navigateur
+cp .env.example .env        # Windows : copy .env.example .env
 ```
 
-### 3. Tester
+Ouvrir `.env` et renseigner la clé :
+
+```
+OPENAI_API_KEY=sk-...
+```
+
+Le fichier `.env` est exclu du dépôt (`.gitignore`) : la clé ne doit jamais être publiée.
+
+## 4. Démarrer la base de recherche
 
 ```bash
-# Terminal 3
-curl http://localhost:3001/api/health
-# {"status":"ok","llm":"OpenAI",...}
-
-node chatbot-production/test-api.js
-# Doit afficher: ✅ All tests passed!
+docker run -d -p 8000:8000 chromadb/chroma
 ```
 
-✅ **Prêt!** Le chatbot répond avec le LLM.
+Chroma est alors accessible sur `http://localhost:8000`. Le serveur interroge l'API v1 de Chroma par le nom de la collection (`ppv`) : en cas d'erreur, utiliser la même image Chroma que lors du prototypage.
 
----
-
-## ⚠️ IMPORTANT — Clés API
-
-Tu **dois** configurer tes clés API pour que le LLM fonctionne!
-
-### Option 1️⃣ : Azure OpenAI (SNCF)
+## 5. Indexer les documents
 
 ```bash
-cp .env.example .env
-nano .env
-
-# Remplis ces champs:
-AZURE_OPENAI_KEY=your-key-from-azure-portal
-AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
-AZURE_OPENAI_DEPLOYMENT=gpt-4-deployment-name
+pip install chromadb openai python-dotenv
+python vectorize.py
 ```
 
-### Option 2️⃣ : OpenAI Direct
+Le script crée la collection `ppv` (mesure de proximité « cosinus ») et y range les passages des 4 documents de démonstration. Il attend 2 secondes entre deux appels à OpenAI pour ne pas dépasser le quota.
+
+Vérifier le résultat :
 
 ```bash
-OPENAI_API_KEY=sk-your-key-from-openai
-OPENAI_MODEL=gpt-4
+python count-chroma.py
 ```
 
-### Option 3️⃣ : Claude
+> Relancer `vectorize.py` sur une collection déjà remplie produit des doublons d'identifiants. Pour repartir de zéro, supprimer le conteneur Chroma et le relancer.
+
+## 6. Démarrer le serveur
 
 ```bash
-OPENAI_API_KEY=sk-ant-your-claude-key
-OPENAI_MODEL=claude-opus
+npm install --legacy-peer-deps
+node server-fixed.js
 ```
 
-📍 Puis relance le backend:
-```bash
-npm start
-```
+Le message `✅ Server running on http://localhost:3001` confirme le démarrage.
 
----
+> `--legacy-peer-deps` est nécessaire à cause de deux dépendances LangChain héritées d'une version abandonnée (constat n° 10 de la revue de code). `npm start` lance encore cette version abandonnée (constat n° 8) : utiliser `node server-fixed.js`.
 
-## 📝 Intégrer le LLM dans ton code React
+## 7. Vérifier
 
-### Situation actuelle
+1. **Le serveur répond** : ouvrir `http://localhost:3001/api/health`, qui doit afficher `{"status":"ok",...}`.
+2. **L'interface fonctionne** : ouvrir `http://localhost:3001`, poser une question (« Ma VM est lente, que faire ? »). La réponse doit être un texte rédigé, suivi d'un encadré **📚 Sources** avec des pourcentages.
+3. **Les routes répondent** : `node test-api.js`.
 
-Ton `public/app.jsx` a une fonction `onSend()` qui utilise une **regex mock**:
+## Problèmes courants
 
-```javascript
-const onSend = () => {
-  const text = composerText.trim();
-  // ... 
-  const lower = text.toLowerCase();
-  if (/(lent|conne|diag)/.test(lower)) {
-    // répond avec des données hardcodées
-  }
-};
-```
-
-### Ce qu'il faut faire
-
-Je te propose **3 niveaux d'intégration** (voir `INTEGRATION.md` pour les détails):
-
-#### Niveau 1️⃣ : Simple (5 min)
-
-Remplace `onSend()` par une version qui appelle le LLM:
-
-```javascript
-const onSend = async () => {
-  const text = composerText.trim();
-  if (!text) return;
-  
-  setComposerText('');
-  sendUser(text);
-  
-  // Appelle le backend
-  const response = await fetch('/api/chat', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      messages: messages.map(m => ({
-        role: m.role,
-        content: typeof m.content === 'string' ? m.content : '[complexe]'
-      }))
-    })
-  });
-  
-  const data = await response.json();
-  botRespond(data.response);  // Réponse du LLM
-};
-```
-
-#### Niveau 2️⃣ : Hybride (15 min)
-
-Garde la détection d'intent **locale** (regex) pour router intelligemment vers:
-- Diagnostic guidé (flux existant)
-- Ticket ServiceNow (flux existant)
-- LLM pour les questions générales
-
-Voir exemple dans `INTEGRATION.md` ("Smart Routing").
-
-#### Niveau 3️⃣ : Full IA (30 min)
-
-Remplace même le diagnostic par une version IA avec `callDiagnosticApi()`.
-
----
-
-## 🔧 Configuration Apache (Production)
-
-Résumé 30 sec:
-
-```bash
-# 1. Copier la config
-sudo cp apache-config.conf /etc/apache2/sites-available/chatbot-ppv.conf
-
-# 2. Adapter le domaine (nano) et activer
-sudo a2ensite chatbot-ppv
-
-# 3. Redémarrer Apache
-sudo systemctl restart apache2
-
-# 4. Lancer le backend (à distance ou localement)
-npm start
-# ou: sudo pm2 start server.js
-```
-
-Pour les détails complets → voir `DEPLOYMENT.md`.
-
----
-
-## 📊 Architecture
-
-```
-Utilisateur navigateur
-    ↓
-Apache (80/443) — Reverse proxy
-    ↓
-Node.js Express (port 3001)
-    ├→ /api/chat (POST)
-    ├→ /api/diagnostic (POST)
-    └→ /api/health (GET)
-    ↓
-LLM (Azure OpenAI / OpenAI / Claude)
-```
-
----
-
-## 🧪 Tests
-
-### Test 1: API santé
-
-```bash
-curl http://localhost:3001/api/health
-# {"status":"ok","llm":"..."}
-```
-
-### Test 2: Chat API
-
-```bash
-curl -X POST http://localhost:3001/api/chat \
-  -H "Content-Type: application/json" \
-  -d '{"messages":[{"role":"user","content":"Bonjour"}]}'
-# {"response":"Réponse du LLM..."}
-```
-
-### Test 3: Depuis le navigateur
-
-Ouvre http://localhost:8000 → envoie un message → reçois une réponse du LLM
-
-### Test 4: Suite complète
-
-```bash
-node test-api.js
-# Teste tous les endpoints automatiquement
-```
-
----
-
-## 🐛 Problèmes courants
-
-| Symptôme | Cause | Fix |
-|----------|-------|-----|
-| "Cannot POST /api/chat" | Backend pas lancé | `npm start` |
-| Empty response | Clé API invalide | Vérifier `.env` |
-| Timeout 30s | LLM trop lent | Augmenter timeout dans `server.js` |
-| 502 Gateway | Apache/Node pas connectés | Vérifier `ProxyPass` Apache |
-
----
-
-## 📚 Documentation complète
-
-- **README.md** → Vue d'ensemble + structure
-- **DEPLOYMENT.md** → Guide serveur complet
-- **INTEGRATION.md** → Comment modifier app.jsx
-- **SETUP.md** → Ce fichier (quick start)
-
----
-
-## ✅ Checklist avant production
-
-- [ ] Backend testé localement (`npm start` + tests API)
-- [ ] Clés API configurées (`.env`)
-- [ ] app.jsx modifié (niveau 1 minimum)
-- [ ] Apache configuré
-- [ ] HTTPS activé (Let's Encrypt)
-- [ ] Domaine accessible
-- [ ] PM2 ou systemd lancé
-- [ ] Logs configurés
-- [ ] Monitoring en place
-
----
-
-## 🎯 Prochaines étapes
-
-### Aujourd'hui
-1. Lire ce fichier ✅
-2. Lancer en local (Terminal 1 + 2 ci-dessus)
-3. Configurer `.env` avec ta clé API
-4. Tester les endpoints API
-
-### Demain
-1. Modifier `app.jsx` (niveau 1, voir INTEGRATION.md)
-2. Tester en local avec le vrai LLM
-3. Commencer les tests de déploiement
-
-### Semaine prochaine
-1. Déployer sur le serveur de staging (DEPLOYMENT.md)
-2. Tests complets
-3. Go production!
-
----
-
-## 📞 Questions?
-
-- Consulte la doc détaillée (README.md, DEPLOYMENT.md, INTEGRATION.md)
-- Lance le test suite: `node test-api.js`
-- Regarde les logs: `npm start` ou `journalctl -u chatbot-ppv`
-
----
-
-## 🚀 C'est bon!
-
-Tu as tout ce qu'il faut pour passer du prototype au **chatbot IA production-ready**.
-
-**Niveau de difficulté**: 🟢 Modéré (1-2 jours pour un dev)
-**Temps déploiement**: 🟢 ~1h sur un serveur configuré
-
----
-
-**Let's go!** 💪
+| Symptôme | Cause probable | Solution |
+|---|---|---|
+| `npm install` échoue avec `ERESOLVE` | Conflit de versions LangChain | `npm install --legacy-peer-deps` |
+| La réponse s'affiche sans encadré « Sources » | Chroma n'est pas démarré, ou la collection est vide | Vérifier `docker ps`, relancer `vectorize.py`, contrôler avec `count-chroma.py` |
+| « Le service de réponse automatique est momentanément indisponible » | Le serveur n'arrive pas à joindre OpenAI : clé absente ou invalide, crédit épuisé | Vérifier `OPENAI_API_KEY` dans `.env` et le crédit du compte OpenAI |
+| `EADDRINUSE` au démarrage | Le port 3001 est déjà utilisé | Arrêter l'autre programme, ou changer `PORT` dans `.env` |
+| La page affiche les réponses toutes faites de la maquette | Ancienne version de `public/app.jsx` en cache | Recharger la page sans cache (Ctrl + F5) |

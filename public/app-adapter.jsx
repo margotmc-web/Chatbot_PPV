@@ -1,3 +1,4 @@
+/* ⚠️ Brouillon conservé pour l'historique, non chargé par index.html. Le branchement réel est dans app.jsx (onSend, RagSources). */
 /* 
   INSTRUCTIONS D'INTÉGRATION:
   

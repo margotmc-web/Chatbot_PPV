@@ -1,3 +1,4 @@
+// ⚠️ Fichier conservé pour l'historique des itérations, non utilisé. Le serveur en service est server-fixed.js (voir RAG-IMPLEMENTATION.md).
 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 require('dotenv').config();
 

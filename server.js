@@ -1,3 +1,4 @@
+// ⚠️ Fichier conservé pour l'historique des itérations, non utilisé. Le serveur en service est server-fixed.js (voir RAG-IMPLEMENTATION.md).
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';

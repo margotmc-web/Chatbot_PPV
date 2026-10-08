@@ -1,404 +1,49 @@
-# 🔌 Guide d'Intégration LLM dans app.jsx
-
-Ce guide te montre comment passer du prototype (avec regex mock) à une vraie API LLM.
-
----
-
-## Étape 1️⃣ : Remplacer la fonction `onSend()`
-
-### Avant (Prototype)
-
-Ton `app.jsx` actuel a cette fonction vers la ligne ~806:
-
-```javascript
-const onSend = () => {
-  const text = composerText.trim();
-  if (!text) return;
-  setComposerText('');
-  sendUser(text);
-  
-  // crude intent detection for demo
-  const lower = text.toLowerCase();
-  setTimeout(() => {
-    if (/(lent|conne|diag|...)/.test(lower)) {
-      // ... réponses hardcodées
-    }
-  }, 300);
-};
-```
-
-### Après (Production avec LLM)
-
-Remplace par:
-
-```javascript
-const onSend = async () => {
-  const text = composerText.trim();
-  if (!text) return;
-  
-  setComposerText('');
-  sendUser(text);
-  
-  // Affiche typing indicator
-  setTimeout(() => {
-    pushMessage({
-      id: `typing-${Date.now()}`,
-      role: 'bot',
-      typing: true,
-      time: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
-    });
-  }, 200);
-
-  try {
-    // Construit l'historique pour le LLM
-    const chatHistory = messages
-      .filter(m => !m.typing)
-      .map(m => ({
-        role: m.role,
-        content: typeof m.content === 'string' 
-          ? m.content 
-          : '[composant React complexe]'
-      }));
-
-    // Appelle l'API du backend
-    const response = await window.apiCall('/api/chat', {
-      method: 'POST',
-      body: JSON.stringify({ messages: chatHistory })
-    });
-
-    // Supprime le typing indicator
-    setMessages(prev => prev.filter(m => !m.typing));
-
-    // Ajoute la réponse du LLM
-    botRespond(response.response);
-    
-  } catch (error) {
-    setMessages(prev => prev.filter(m => !m.typing));
-    botRespond(
-      <div className="api-error">
-        ⚠️ Erreur: {error.message}
-      </div>
-    );
-  }
-};
-```
-
----
-
-## Étape 2️⃣ : Ajouter l'helper API
-
-Ajoute ceci **au début** de `app.jsx` (avant les autres fonctions):
-
-```javascript
-/* ============================================================
-   LLM API Helper
-   ============================================================ */
-const callLLMApi = async (messages) => {
-  const response = await fetch('/api/chat', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages })
-  });
-
-  if (!response.ok) {
-    throw new Error(`API Error ${response.status}`);
-  }
-
-  const data = await response.json();
-  return data.response;
-};
-
-const callDiagnosticApi = async (userInput, context = {}) => {
-  const response = await fetch('/api/diagnostic', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ userInput, context })
-  });
-
-  if (!response.ok) {
-    throw new Error(`Diagnostic failed`);
-  }
-
-  return response.json();
-};
-```
-
----
-
-## Étape 3️⃣ : Adapter le `startDiagnostic()` (optionnel mais recommandé)
-
-### Avant
-
-```javascript
-const startDiagnostic = () => {
-  // ... lance les étapes guidées hardcodées
-  botRespond(<DiagnosticChoice onChoice={...} />);
-  // etc.
-};
-```
-
-### Après (avec IA pour affiner le diagnostic)
-
-```javascript
-const startDiagnostic = async () => {
-  // Étape 1: Introduction
-  botRespond(
-    <p>Lancez le diagnostic. Décrivez le problème que vous rencontrez avec votre VM.</p>
-  );
-  
-  // Attendre que l'utilisateur envoie quelque chose...
-  // (ou proposer un choix)
-  setMessages(prev => {
-    const copy = [...prev];
-    if (copy.length > 0) {
-      const last = copy[copy.length - 1];
-      if (last.role === 'bot') {
-        copy[copy.length - 1] = {
-          ...last,
-          choices: [
-            { id: 'diag-vm-slow', label: 'VM lente', kind: 'jump-diagnostic' },
-            { id: 'diag-connection', label: 'Problème de connexion', kind: 'jump-diagnostic' },
-            { id: 'diag-error', label: 'Message d\'erreur', kind: 'jump-diagnostic' }
-          ]
-        };
-      }
-    }
-    return copy;
-  });
-};
-```
-
-Ou encore mieux, appelle l'API pour un diagnostic intelligent:
-
-```javascript
-const startDiagnosticAI = async () => {
-  const userDescription = "VM lente, connexion RDP lente depuis ce matin";
-  
-  try {
-    const result = await callDiagnosticApi(userDescription, {
-      vmName: VM.name,
-      vmStatus: VM.status
-    });
-
-    botRespond(result.analysis);
-    
-    if (result.actions && result.actions.length > 0) {
-      // Affiche les actions recommandées
-      const choices = result.actions.map((action, idx) => ({
-        id: `diag-${idx}`,
-        label: action,
-        primary: idx === 0
-      }));
-
-      setMessages(prev => {
-        const copy = [...prev];
-        if (copy.length > 0) {
-          copy[copy.length - 1] = { ...copy[copy.length - 1], choices };
-        }
-        return copy;
-      });
-    }
-
-    if (result.escalate) {
-      setTimeout(() => startTicketBlank(), 1000);
-    }
-  } catch (error) {
-    botRespond(`Erreur diagnostic: ${error.message}`);
-  }
-};
-```
-
----
-
-## Étape 4️⃣ : Smart Routing (Optionnel)
-
-Tu peux garder une détection d'intent **locale et rapide** pour router intelligemment:
-
-```javascript
-const onSend = async () => {
-  const text = composerText.trim();
-  if (!text) return;
-  
-  setComposerText('');
-  sendUser(text);
-
-  const lower = text.toLowerCase();
-  
-  // Détection locale rapide
-  if (/(lent|conne|diag|probl|panne|marche pas|erreur)/.test(lower)) {
-    // Route vers le flux diagnostic (plus rapide que LLM)
-    startDiagnostic();
-  } else if (/(co[uû]t|prix|tarif|combien|factur)/.test(lower)) {
-    // LLM pour la question tarifaire
-    const response = await callLLMApi([
-      { role: 'user', content: text }
-    ]);
-    botRespond(response);
-    setTimeout(() => {
-      pushMessage({ role: 'bot', wide: true, card: <CostBreakdownCard /> });
-    }, 800);
-  } else {
-    // LLM general-purpose fallback
-    // ... (voir étape 1)
-  }
-};
-```
-
----
-
-## Étape 5️⃣ : Modifier le Composer
-
-Remplace le bouton d'envoi pour supporter async:
-
-### Avant
-
-```javascript
-<button onClick={onSend}>Envoyer</button>
-```
-
-### Après (avec state loading)
-
-```javascript
-const [isLoading, setIsLoading] = useState(false);
-
-const onSendWrapper = async () => {
-  setIsLoading(true);
-  try {
-    await onSend();
-  } finally {
-    setIsLoading(false);
-  }
-};
-
-// Dans le JSX:
-<button 
-  onClick={onSendWrapper}
-  disabled={isLoading}
-  className={isLoading ? 'is-loading' : ''}
->
-  {isLoading ? 'Envoi...' : 'Envoyer'}
-</button>
-```
-
----
-
-## Étape 6️⃣ : Ajouter des styles pour le loading
-
-Dans `styles.css`, ajoute:
-
-```css
-.api-error {
-  background: #ffe0e0;
-  border-left: 4px solid #e31d23;
-  padding: 12px;
-  margin: 8px 0;
-  border-radius: 4px;
-  font-size: 14px;
-}
-
-.is-loading {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.msg__bubble.api-error {
-  background: #ffe0e0;
-  color: #8b0000;
-}
-```
-
----
-
-## 🧪 Tester en local
-
-### 1. Lancer le backend
-
-```bash
-cd chatbot-production
-npm install
-npm start
-
-# Port 3001 doit être accessible
-curl http://localhost:3001/api/health
-```
-
-### 2. Servir le frontend
-
-```bash
-cd chatbot-production/public
-python3 -m http.server 8000
-# Ou: npx serve
-```
-
-### 3. Ouvrir dans le navigateur
-
-```
-http://localhost:8000
-```
-
-### 4. Tester un message
-
-Envoie un message → doit appeler `/api/chat` → voir la réponse du LLM
-
-Vérifier dans la console du navigateur (F12) → Network tab → `POST /api/chat`
-
----
-
-## ⚠️ Checklist avant déploiement
-
-- [ ] Backend Node.js lancé et accessible (port 3001)
-- [ ] Variables d'env `.env` remplies (clés API)
-- [ ] `onSend()` remplacé par version async
-- [ ] `callLLMApi` ajoutée dans app.jsx
-- [ ] Apache configuré en reverse proxy
-- [ ] CORS configuré correctement
-- [ ] Tests locaux OK
-- [ ] Tests sur serveur de staging OK
-- [ ] HTTPS activé (certificate Let's Encrypt)
-
----
-
-## 🆘 Erreurs courantes
-
-### ❌ "Erreur: Failed to fetch /api/chat"
-
-**Cause**: Le backend n'est pas lancé ou CORS bloqué.
-
-**Fix**:
-```bash
-sudo pm2 status  # Voir si chatbot-ppv tourne
-curl http://localhost:3001/api/health
-```
-
-### ❌ "504 Gateway Timeout"
-
-**Cause**: Le LLM prend trop de temps.
-
-**Fix** (dans `server.js`):
-```javascript
-maxTokens: 1000,
-timeout: 60000  // 60 secondes
-```
-
-### ❌ "Unauthorized (401)"
-
-**Cause**: Clé API invalide ou expirée.
-
-**Fix**:
-```bash
-# Vérifier la clé dans .env
-echo $AZURE_OPENAI_KEY
-echo $OPENAI_API_KEY
-```
-
----
-
-## 📞 Besoin d'aide?
-
-1. Consulte le `DEPLOYMENT.md` pour les problèmes d'infra
-2. Regarde les logs: `sudo journalctl -u chatbot-ppv -f`
-3. Teste l'API directement: `curl -X POST http://localhost:3001/api/chat ...`
-
----
-
-**Prêt? C'est parti pour la prod!** 🚀
+# Intégrations prévues
+
+Le prototype fonctionne seul, sur un poste. Ce document décrit comment l'assistant s'intégrera aux outils de la SNCF. **Aucune de ces intégrations n'est encore réalisée** 🔴. L'architecture complète est décrite dans la [documentation de pilotage](https://github.com/margotmc-web/Chatbot_PPV_BC07) (architecture, diagramme de déploiement).
+
+## Vue d'ensemble
+
+| Intégration | Phase 1 — MVP | Phase 2 |
+|---|---|---|
+| Point d'accès | SharePoint de l'offre PPV et catalogue des services numériques | Identique |
+| Interface | Composant React intégré aux pages SharePoint | Agent Copilot Studio intégré aux pages |
+| Source documentaire | Bibliothèque documentaire SharePoint | Bibliothèque SharePoint, indexée automatiquement dans Azure AI Search |
+| Modèles d'IA | Azure OpenAI | Azure OpenAI |
+| Connexion des utilisateurs | Microsoft Entra ID (compte SNCF) | Microsoft Entra ID |
+| Escalade | Ticket pré-rédigé, reporté par l'utilisateur dans ServiceNow | Identique |
+
+## 1. SharePoint — point d'accès et documentation
+
+- **Point d'accès** : l'assistant est proposé depuis le SharePoint de l'offre PPV et depuis le catalogue des services numériques, là où les utilisateurs cherchent déjà l'information.
+- **Documentation** : la source n'est plus les 4 documents de démonstration de `vectorize.py`, mais la bibliothèque documentaire SharePoint du service (procédures, FAQ, tarification).
+- **Maintenance** : l'équipe PPV met à jour les fiches dans SharePoint ; en phase 2, l'index de recherche est mis à jour automatiquement.
+
+Point à préciser : la façon d'interroger la bibliothèque SharePoint en phase 1, sans index vectoriel.
+
+## 2. Microsoft Entra ID — connexion avec le compte SNCF
+
+L'utilisateur est reconnu par son compte SNCF (connexion unique), sans nouveau mot de passe. L'assistant ne stocke ni mot de passe ni jeton. Le prototype, lui, n'a aucune authentification.
+
+## 3. Azure OpenAI — modèles d'IA
+
+Les appels directs à OpenAI du prototype sont remplacés par Azure OpenAI, hébergé dans l'environnement Microsoft de la SNCF, en région UE : la documentation et les questions ne sortent plus du périmètre de l'entreprise.
+
+| Usage | Prototype | Cible |
+|---|---|---|
+| Vectorisation | `text-embedding-3-small` via OpenAI | Même modèle via Azure OpenAI |
+| Rédaction | `gpt-3.5-turbo` via OpenAI | gpt-4o-mini via Azure OpenAI |
+
+Dans le code, seules les fonctions d'appel de `server-fixed.js` changent : point d'accès (URL), nom du déploiement Azure et mode d'authentification.
+
+## 4. ServiceNow — ticket pré-rédigé
+
+**L'assistant n'écrit jamais dans ServiceNow.** Lorsqu'il ne sait pas répondre, ou que le problème persiste, il **pré-rédige le texte du ticket** à partir de l'échange : objet, description, vérifications déjà faites. L'utilisateur le copie lui-même dans ServiceNow.
+
+Ce choix évite de gérer des droits d'écriture sur un outil tiers, et laisse à l'utilisateur la décision d'escalader. Le technicien de niveau 2 reçoit une demande déjà documentée.
+
+Une route `POST /api/ticket` est prévue pour la pré-rédaction. Dans le prototype, le parcours « Préparer un ticket » de l'interface est une maquette, sans appel au serveur.
+
+## 5. Journalisation
+
+En phase 2, les échanges sont journalisés dans un service interne SNCF et conservés 6 mois (traçabilité, conformité RGPD). Le service exact reste à préciser. Le prototype ne conserve aucune conversation.
